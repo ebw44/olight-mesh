@@ -1,0 +1,12 @@
+{
+  "nid": 0,
+  "enc_key": "<32 hex chars: network EncryptionKey>",
+  "priv_key": "<32 hex chars: network PrivacyKey>",
+  "app_key": "<32 hex chars: application AppKey>",
+  "iv_index": 0,
+  "src": "0x6100",
+  "comment": "Copy to keys.json and fill in (nid = 7-bit network id derived from the NetKey). bulbs maps BLE address to unicast address. keys.json is secret: do not commit or sync it.",
+  "bulbs": {
+    "AA:BB:CC:DD:EE:FF": "0x0040"
+  }
+}

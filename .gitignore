@@ -1,0 +1,11 @@
+# secrets and local state
+keys.json
+state.json
+
+# live snapshot log written by the snapshot command
+snapshots.jsonl
+
+# python
+__pycache__/
+*.pyc
+.venv/

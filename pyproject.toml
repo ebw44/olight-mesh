@@ -1,0 +1,9 @@
+[project]
+name = "olight-mesh"
+version = "0.1.0"
+description = "Bluetooth Mesh proxy client for Olight Sphere bulbs"
+requires-python = ">=3.11"
+dependencies = [
+    "bleak>=3.0.2",
+    "cryptography>=50.0.2",
+]
