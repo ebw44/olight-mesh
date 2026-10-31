@@ -21,4 +21,33 @@ void main() {
     expect(hex(modeWhite), 'c9d00700');
     expect(hex(scene7), 'c9d00701660407');
   });
+
+  // Bulb -> phone: encrypt a status as the bulb would (src = bulb, dst = phone), then decode it.
+  Uint8List fromBulb(List<int> access) {
+    final net = buildNetworkPdu(k, 0x0040, k.src, accessEncrypt(k, 0x222, 0x0040, k.src, Uint8List.fromList(access)), 0x222);
+    return net;
+  }
+
+  test('receive onoff status', () {
+    final n = parseNetworkPdu(k, fromBulb([0x82, 0x04, 1]))!;
+    expect(n.src, 0x40);
+    final st = BulbStatus();
+    expect(st.apply(accessDecrypt(k, n)!), true);
+    expect(st.on, true);
+  });
+  test('receive hsl status + vendor report', () {
+    final st = BulbStatus();
+    st.apply(accessDecrypt(k, parseNetworkPdu(k, fromBulb([0x82, 0x78, 0x00, 0x80, 0x00, 0x55, 0xff, 0xff]))!)!);
+    expect(st.hue!.round(), 120);
+    expect(st.sat!.round(), 100);
+    st.apply(accessDecrypt(k, parseNetworkPdu(k, fromBulb([0xCD, 0xD0, 0x07, 1, 102, 4, 7, 103, 2, 0, 0, 0, 87]))!)!);
+    expect(st.workMode, 1);
+    expect(st.scene, 7);
+    expect(st.battery, 87);
+  });
+  test('wrong key / tamper rejected', () {
+    final pdu = fromBulb([0x82, 0x04, 1]);
+    pdu[pdu.length - 1] ^= 1;
+    expect(parseNetworkPdu(k, pdu), isNull);
+  });
 }

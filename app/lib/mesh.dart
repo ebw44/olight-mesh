@@ -104,4 +104,122 @@ Uint8List get modeWhite => dpWrite(0);
 Uint8List get modeColour => dpWrite(1);
 Uint8List get scene7 => dpWrite(1, [102, 0x04, 7]); // DP 102 enum 7 = custom colour (colour from HSL)
 
+// ---------- receive path ----------
+
+Uint8List? _ccmDecrypt(Uint8List key, Uint8List nonce, Uint8List data) {
+  final c = CCMBlockCipher(AESEngine())..init(false, AEADParameters(KeyParameter(key), 32, nonce, Uint8List(0)));
+  try {
+    return c.process(data);
+  } catch (_) {
+    return null; // MIC mismatch
+  }
+}
+
+class NetPdu {
+  NetPdu(this.ctl, this.ttl, this.seq, this.src, this.dst, this.transport);
+  final bool ctl;
+  final int ttl, seq, src, dst;
+  final Uint8List transport;
+}
+
+/// Mirror of parse_network_pdu: null if NID / NetMIC do not match. [pdu] excludes the proxy header byte.
+NetPdu? parseNetworkPdu(MeshKeys k, Uint8List pdu) {
+  if (pdu.length < 13 || (pdu[0] & 0x7F) != k.nid) return null;
+  final enc = Uint8List.fromList(pdu.sublist(7));
+  final pecb = _aesEcb(k.privKey, _b([0, 0, 0, 0, 0, ..._be(k.ivIndex, 4), ...enc.sublist(0, 7)]));
+  final hdr = [for (var i = 0; i < 6; i++) pdu[1 + i] ^ pecb[i]];
+  final ctlTtl = hdr[0];
+  final seq = (hdr[1] << 16) | (hdr[2] << 8) | hdr[3];
+  final src = (hdr[4] << 8) | hdr[5];
+  if (ctlTtl >> 7 != 0) return null; // control messages: not handled
+  final nonce = _b([0, ctlTtl, ..._be(seq, 3), ..._be(src, 2), 0, 0, ..._be(k.ivIndex, 4)]);
+  final clear = _ccmDecrypt(k.encKey, nonce, enc);
+  if (clear == null || clear.length < 2) return null;
+  return NetPdu(false, ctlTtl & 0x7F, seq, src, (clear[0] << 8) | clear[1], Uint8List.fromList(clear.sublist(2)));
+}
+
+/// App-key access payload of an unsegmented message, or null.
+Uint8List? accessDecrypt(MeshKeys k, NetPdu n) {
+  final t = n.transport;
+  if (t.isEmpty || t[0] & 0x80 != 0) return null; // segmented
+  if ((t[0] >> 6) & 1 == 0) return null; // device-key message
+  if ((t[0] & 0x3F) != k.aid) return null;
+  final nonce = _b([1, 0, ..._be(n.seq, 3), ..._be(n.src, 2), ..._be(n.dst, 2), ..._be(k.ivIndex, 4)]);
+  return _ccmDecrypt(k.appKey, nonce, Uint8List.fromList(t.sublist(1)));
+}
+
+// Get messages (read-only)
+Uint8List get onoffGet => _b([0x82, 0x01]);
+Uint8List get lightnessGet => _b([0x82, 0x4B]);
+Uint8List get hslGet => _b([0x82, 0x6D]);
+Uint8List get vendorQuery => _b([0xCC, ..._le(company, 2)]);
+
+/// Last known state of the bulb, merged from every status / report received.
+class BulbStatus {
+  bool? on;
+  double? lightness; // % from Lightness / HSL status
+  double? hue, sat; // degrees / % from HSL status
+  int? workMode; // 0 white, 1 colour
+  final Map<int, int> dps = {}; // Tuya data points from vendor reports
+  DateTime? updated;
+
+  BulbStatus copy() => BulbStatus()
+    ..on = on
+    ..lightness = lightness
+    ..hue = hue
+    ..sat = sat
+    ..workMode = workMode
+    ..dps.addAll(dps)
+    ..updated = updated;
+
+  int? get scene => dps[102];
+  int? get countdown => dps[7];
+  int? get battery => dps[103];
+
+  /// Merge one decrypted access payload; returns true if it was understood.
+  bool apply(Uint8List a) {
+    if (a.length < 2) return false;
+    int le(List<int> p, int i) => p[i] | (p[i + 1] << 8);
+    final op2 = (a[0] << 8) | a[1];
+    final p = a.sublist(2);
+    switch (op2) {
+      case 0x8204:
+        if (p.isEmpty) return false;
+        on = p[0] != 0;
+      case 0x824E:
+        if (p.length < 2) return false;
+        lightness = le(p, 0) * 100 / 65535;
+      case 0x8278:
+        if (p.length < 6) return false;
+        lightness = le(p, 0) * 100 / 65535;
+        hue = le(p, 2) * 360 / 65536;
+        sat = le(p, 4) * 100 / 65535;
+      default:
+        if (a[0] & 0xC0 == 0xC0 && a.length >= 4 && a[1] == (company & 0xFF) && a[2] == (company >> 8)) {
+          if (a[0] & 0x3F != 0x0D) return false; // only reports
+          final body = a.sublist(3); // [work mode][dp][type][value]...
+          workMode = body[0] == 0 ? 0 : 1;
+          var i = 1;
+          while (i + 2 <= body.length) {
+            final dp = body[i], type = body[i + 1];
+            if (type != 0x01 && type != 0x02 && type != 0x04) break;
+            final size = type == 0x02 ? 4 : 1;
+            if (i + 2 + size > body.length) break;
+            var v = 0;
+            for (var j = 0; j < size; j++) {
+              v = (v << 8) | body[i + 2 + j];
+            }
+            if (type == 0x02 && v >= 0x80000000) v -= 0x100000000;
+            dps[dp] = v;
+            i += 2 + size;
+          }
+        } else {
+          return false;
+        }
+    }
+    updated = DateTime.now();
+    return true;
+  }
+}
+
 String hex(List<int> b) => b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
