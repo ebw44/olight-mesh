@@ -1,0 +1,19 @@
+name: olight_sphere
+description: Minimal Bluetooth Mesh proxy remote for an Olight Sphere.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+  pointycastle: ^3.9.1
+  flutter_blue_plus: ^1.32.0
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.2.3
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true
