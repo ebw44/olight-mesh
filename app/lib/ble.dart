@@ -26,7 +26,30 @@ class Bulb {
 
   /// Unicast of the connected bulb from keys.json (matched by BLE address), else all nodes.
   /// Never another bulb's address: replies and commands must go to the bulb we are connected to.
-  int? get unicast => keys.bulbs[device.remoteId.str.toUpperCase()];
+  int? get unicast => keys.bulbs[device.remoteId.str.toUpperCase()] ?? _learned;
+  bool get learned => keys.bulbs[device.remoteId.str.toUpperCase()] == null && _learned != null;
+  int? _learned;
+  Completer<int>? _firstReply;
+
+  /// Bulb not listed in keys.json: ask all nodes once. The bulb we are connected to is the proxy,
+  /// so its reply arrives first (the others are relayed ~0.5 s later); from then on address only it.
+  Future<void> learnTarget() async {
+    if (unicast != null) return;
+    final c = _firstReply = Completer<int>();
+    try {
+      await send(onoffGet);
+      _learned = await c.future.timeout(const Duration(seconds: 4));
+      final s = status.value;
+      s.sources
+        ..clear()
+        ..add(_learned!);
+      status.value = s.copy();
+    } on TimeoutException {
+      // nobody answered: keep addressing all nodes
+    } finally {
+      _firstReply = null;
+    }
+  }
   int get dst => unicast ?? dstAllNodes;
 
   Future<void> connect() async {
@@ -60,6 +83,8 @@ class Bulb {
     if (net == null) return;
     final acc = accessDecrypt(keys, net);
     if (acc == null) return;
+    final f = _firstReply;
+    if (f != null && !f.isCompleted && unicast == null) f.complete(net.src);
     if (unicast != null && net.src != unicast) return; // reply from another bulb of the mesh
     final s = status.value;
     s.sources.add(net.src);

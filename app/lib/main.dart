@@ -61,6 +61,7 @@ class _HomeState extends State<Home> {
     try {
       await b.connect();
       _synced = false;
+      await b.learnTarget();
       b.status.addListener(() => _syncControls(b));
       setState(() => _bulb = b);
       _refresh();
@@ -151,7 +152,7 @@ class _HomeState extends State<Home> {
   /// Everything on one screen: no scrolling. The wheel takes whatever height is left.
   Widget _controlView(Bulb b) => Column(children: [
         ValueListenableBuilder<BulbStatus>(
-            valueListenable: b.status, builder: (_, st, __) => StatusCard(status: st, onRefresh: _refresh, target: b.unicast == null ? 'all nodes' : '0x${b.unicast!.toRadixString(16).padLeft(4, '0')}')),
+            valueListenable: b.status, builder: (_, st, __) => StatusCard(status: st, onRefresh: _refresh, target: b.unicast == null ? 'all nodes' : '0x${b.unicast!.toRadixString(16).padLeft(4, '0')}${b.learned ? ' auto' : ''}')),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: FilledButton(onPressed: () => _do((b) => b.setOn(true)), child: const Text('On'))),
