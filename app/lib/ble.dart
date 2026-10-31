@@ -20,9 +20,14 @@ class Bulb {
   StreamSubscription<List<int>>? _sub;
   Future<void> _queue = Future.value(); // serialises sends so sequence numbers never race
   final status = ValueNotifier<BulbStatus>(BulbStatus());
-  int? _mode; // last work mode sent (0 white, 1 colour) to avoid resending the switch
+  int? _mode; // last work mode sent (0 white, 1 colour)
+  // Controls shared by white and colour: brightness 0..100 %, colour hue / saturation.
+  double brightness = 100, hue = 0, sat = 100;
 
-  int get dst => keys.bulbs.values.firstWhere((u) => u != null, orElse: () => null) ?? dstAllNodes;
+  /// Unicast of the connected bulb from keys.json (matched by BLE address), else all nodes.
+  /// Never another bulb's address: replies and commands must go to the bulb we are connected to.
+  int? get unicast => keys.bulbs[device.remoteId.str.toUpperCase()];
+  int get dst => unicast ?? dstAllNodes;
 
   Future<void> connect() async {
     for (var i = 0; ; i++) {
@@ -55,7 +60,9 @@ class Bulb {
     if (net == null) return;
     final acc = accessDecrypt(keys, net);
     if (acc == null) return;
+    if (unicast != null && net.src != unicast) return; // reply from another bulb of the mesh
     final s = status.value;
+    s.sources.add(net.src);
     if (s.apply(acc)) status.value = s.copy(); // new object so listeners rebuild
   }
 
@@ -88,15 +95,38 @@ class Bulb {
 
   Future<void> setOn(bool on) => send(onoffSet(on, 0));
 
-  Future<void> setBrightness(double pct) async {
-    if (_mode != 0) await send(modeWhite);
-    _mode = 0;
-    await send(lightnessSet(pct, 0));
+  int get _currentMode => _mode ?? status.value.workMode ?? 0;
+
+  /// Switch work mode if needed; a slow bulb needs a moment before it takes the next command.
+  Future<void> _ensureMode(int mode) async {
+    if (_currentMode == mode && _mode != null) return;
+    await send(mode == 1 ? scene7 : modeWhite);
+    _mode = mode;
+    await Future.delayed(const Duration(milliseconds: 400));
   }
 
-  Future<void> setColour(double hue, double sat) async {
-    if (_mode != 1) await send(scene7);
-    _mode = 1;
-    await send(hslSet(50, hue, sat, 0)); // lightness 50 % = full colour
+  Future<void> _sendColour() => send(hslSet(brightness.clamp(1.0, 100.0) / 2, hue, sat, 0)); // L 50 % = full colour
+
+  /// Brightness applies to whatever is showing: white level in white mode, colour intensity in colour mode.
+  Future<void> setBrightness(double pct) async {
+    brightness = pct;
+    if (_currentMode == 1) {
+      await _sendColour();
+    } else {
+      await _ensureMode(0);
+      await send(lightnessSet(pct, 0));
+    }
+  }
+
+  Future<void> setColour(double h, double s) async {
+    hue = h;
+    sat = s;
+    await _ensureMode(1);
+    await _sendColour();
+  }
+
+  Future<void> setWhite() async {
+    await _ensureMode(0);
+    await send(lightnessSet(brightness, 0));
   }
 }

@@ -65,7 +65,7 @@ class _HomeState extends State<Home> {
       setState(() => _bulb = b);
       _refresh();
       _poll?.cancel();
-      _poll = Timer.periodic(const Duration(seconds: 10), (_) => _refresh());
+      _poll = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
     } catch (e) {
       _say(e);
     }
@@ -79,11 +79,25 @@ class _HomeState extends State<Home> {
     setState(() {
       _hue = st.hue!;
       _sat = st.sat ?? _sat;
-      if (st.workMode == 0) _bright = st.lightness!.clamp(0.0, 100.0);
+      _bright = (st.workMode == 1 ? st.lightness! * 2 : st.lightness!).clamp(0.0, 100.0);
+      b.hue = _hue;
+      b.sat = _sat;
+      b.brightness = _bright;
     });
   }
 
-  void _refresh() => _bulb?.refresh().catchError((Object e) => _say(e));
+  bool _refreshing = false;
+  Future<void> _refresh() async {
+    if (_refreshing || _bulb == null) return; // a slow bulb must not get a backlog of queries
+    _refreshing = true;
+    try {
+      await _bulb?.refresh();
+    } catch (e) {
+      _say(e);
+    } finally {
+      _refreshing = false;
+    }
+  }
 
   @override
   void dispose() {
@@ -137,12 +151,14 @@ class _HomeState extends State<Home> {
   /// Everything on one screen: no scrolling. The wheel takes whatever height is left.
   Widget _controlView(Bulb b) => Column(children: [
         ValueListenableBuilder<BulbStatus>(
-            valueListenable: b.status, builder: (_, st, __) => StatusCard(status: st, onRefresh: _refresh)),
+            valueListenable: b.status, builder: (_, st, __) => StatusCard(status: st, onRefresh: _refresh, target: b.unicast == null ? 'all nodes' : '0x${b.unicast!.toRadixString(16).padLeft(4, '0')}')),
         const SizedBox(height: 8),
         Row(children: [
           Expanded(child: FilledButton(onPressed: () => _do((b) => b.setOn(true)), child: const Text('On'))),
           const SizedBox(width: 8),
           Expanded(child: FilledButton.tonal(onPressed: () => _do((b) => b.setOn(false)), child: const Text('Off'))),
+          const SizedBox(width: 8),
+          Expanded(child: FilledButton.tonal(onPressed: () => _do((b) => b.setWhite()), child: const Text('White'))),
         ]),
         Expanded(
           child: Padding(

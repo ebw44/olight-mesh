@@ -11,8 +11,9 @@ String _countdown(int s) => '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
 
 /// Compact live view of what the bulb last reported (two lines + lamp).
 class StatusCard extends StatelessWidget {
-  const StatusCard({super.key, required this.status, required this.onRefresh});
+  const StatusCard({super.key, required this.status, required this.onRefresh, this.target = ''});
   final BulbStatus status;
+  final String target; // where commands go, e.g. 0x0040 or all nodes
   final VoidCallback onRefresh;
 
   @override
@@ -28,11 +29,13 @@ class StatusCard extends StatelessWidget {
             : const Color(0xFFFFF1C9);
     final age = s.updated == null ? null : DateTime.now().difference(s.updated!).inSeconds;
     final details = [
-      if (s.lightness != null) '${s.lightness!.round()}%',
+      if (s.lightness != null) '${(colourMode ? s.lightness! * 2 : s.lightness!).clamp(0, 100).round()}%',
       if (colourMode) 'H ${s.hue!.round()}° S ${s.sat!.round()}%',
       if (s.scene != null) _scenes[s.scene] ?? 'Scene ${s.scene}',
       if (s.battery != null) 'Batt ${s.battery}%',
       if (s.countdown != null && s.countdown! > 0) 'Timer ${_countdown(s.countdown!)}',
+      if (target.isNotEmpty) '→ $target',
+      if (s.sources.isNotEmpty) 'from ${(s.sources.toList()..sort()).map((a) => '0x${a.toRadixString(16).padLeft(4, '0')}').join(',')}',
     ].join('  ·  ');
     return Card(
       margin: EdgeInsets.zero,

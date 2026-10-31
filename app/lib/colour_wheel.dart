@@ -75,7 +75,6 @@ const presets = <(String, double, double)>[
   ('Blue', 240, 100),
   ('Purple', 275, 100),
   ('Pink', 320, 80),
-  ('White', 0, 0),
 ];
 
 class PresetRow extends StatelessWidget {

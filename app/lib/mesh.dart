@@ -162,6 +162,7 @@ class BulbStatus {
   int? workMode; // 0 white, 1 colour
   final Map<int, int> dps = {}; // Tuya data points from vendor reports
   DateTime? updated;
+  final Set<int> sources = {}; // unicast addresses that answered
 
   BulbStatus copy() => BulbStatus()
     ..on = on
@@ -170,7 +171,8 @@ class BulbStatus {
     ..sat = sat
     ..workMode = workMode
     ..dps.addAll(dps)
-    ..updated = updated;
+    ..updated = updated
+    ..sources.addAll(sources);
 
   int? get scene => dps[102];
   int? get countdown => dps[7];
