@@ -105,63 +105,77 @@ class _HomeState extends State<Home> {
     final b = _bulb;
     return Scaffold(
       appBar: AppBar(title: const Text('Olight Sphere')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        if (b == null) ...[
-          TextField(
-              controller: _keysCtl, maxLines: 6, decoration: const InputDecoration(labelText: 'keys.json (paste)')),
-          Row(children: [
-            TextButton(onPressed: _saveKeys, child: const Text('Save keys')),
-            TextButton(onPressed: _keys == null ? null : _scan, child: const Text('Scan')),
-          ]),
-          StreamBuilder<List<ScanResult>>(
-            stream: FlutterBluePlus.scanResults,
-            builder: (_, s) => Column(children: [
-              for (final r in s.data ?? [])
-                ListTile(
-                    title: Text(r.device.platformName.isEmpty ? '(unnamed)' : r.device.platformName),
-                    subtitle: Text(r.device.remoteId.str),
-                    onTap: () => _connect(r.device)),
-            ]),
-          ),
-        ] else ...[
-          Row(children: [
-            FilledButton(onPressed: () => _do((b) => b.setOn(true)), child: const Text('On')),
-            const SizedBox(width: 12),
-            FilledButton(onPressed: () => _do((b) => b.setOn(false)), child: const Text('Off')),
-            const Spacer(),
-            TextButton(
-                onPressed: () async {
-                  _poll?.cancel();
-                  await b.disconnect();
-                  setState(() => _bulb = null);
-                },
-                child: const Text('Disconnect')),
-          ]),
-          ValueListenableBuilder<BulbStatus>(
-              valueListenable: b.status, builder: (_, st, __) => StatusCard(status: st, onRefresh: _refresh)),
-          const Text('Brightness (white)'),
-          Slider(
-              value: _bright, max: 100,
-              onChanged: (v) => setState(() => _bright = v),
-              onChangeEnd: (v) => _do((b) => b.setBrightness(v))),
-          const SizedBox(height: 16),
-          const Text('Colour'),
-          const SizedBox(height: 8),
-          ColourWheel(
-              hue: _hue, sat: _sat,
-              onChanged: (h, s) => setState(() { _hue = h; _sat = s; }),
-              onChangeEnd: (h, s) {
-                setState(() { _hue = h; _sat = s; });
-                _do((b) => b.setColour(h, s));
-              }),
-          const SizedBox(height: 16),
-          PresetRow(onPick: (h, s) {
-            setState(() { _hue = h; _sat = s; });
-            _do((b) => b.setColour(h, s));
-          }),
-        ],
-        if (_msg.isNotEmpty) Text(_msg, style: const TextStyle(color: Colors.red)),
-      ]),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          child: b == null ? _setupView() : _controlView(b),
+        ),
+      ),
     );
   }
+
+  Widget _setupView() => ListView(children: [
+        TextField(
+            controller: _keysCtl, maxLines: 6, decoration: const InputDecoration(labelText: 'keys.json (paste)')),
+        Row(children: [
+          TextButton(onPressed: _saveKeys, child: const Text('Save keys')),
+          TextButton(onPressed: _keys == null ? null : _scan, child: const Text('Scan')),
+        ]),
+        StreamBuilder<List<ScanResult>>(
+          stream: FlutterBluePlus.scanResults,
+          builder: (_, s) => Column(children: [
+            for (final r in s.data ?? [])
+              ListTile(
+                  title: Text(r.device.platformName.isEmpty ? '(unnamed)' : r.device.platformName),
+                  subtitle: Text(r.device.remoteId.str),
+                  onTap: () => _connect(r.device)),
+          ]),
+        ),
+        if (_msg.isNotEmpty) Text(_msg, style: const TextStyle(color: Colors.red)),
+      ]);
+
+  /// Everything on one screen: no scrolling. The wheel takes whatever height is left.
+  Widget _controlView(Bulb b) => Column(children: [
+        ValueListenableBuilder<BulbStatus>(
+            valueListenable: b.status, builder: (_, st, __) => StatusCard(status: st, onRefresh: _refresh)),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: FilledButton(onPressed: () => _do((b) => b.setOn(true)), child: const Text('On'))),
+          const SizedBox(width: 8),
+          Expanded(child: FilledButton.tonal(onPressed: () => _do((b) => b.setOn(false)), child: const Text('Off'))),
+        ]),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: ColourWheel(
+                hue: _hue, sat: _sat,
+                onChanged: (h, s) => setState(() { _hue = h; _sat = s; }),
+                onChangeEnd: (h, s) {
+                  setState(() { _hue = h; _sat = s; });
+                  _do((b) => b.setColour(h, s));
+                }),
+          ),
+        ),
+        PresetRow(onPick: (h, s) {
+          setState(() { _hue = h; _sat = s; });
+          _do((b) => b.setColour(h, s));
+        }),
+        Row(children: [
+          const Icon(Icons.brightness_6, size: 20),
+          Expanded(
+            child: Slider(
+                value: _bright, max: 100,
+                onChanged: (v) => setState(() => _bright = v),
+                onChangeEnd: (v) => _do((b) => b.setBrightness(v))),
+          ),
+          TextButton(
+              onPressed: () async {
+                _poll?.cancel();
+                await b.disconnect();
+                setState(() => _bulb = null);
+              },
+              child: const Text('Disconnect')),
+        ]),
+        if (_msg.isNotEmpty) Text(_msg, style: const TextStyle(color: Colors.red, fontSize: 12), maxLines: 2),
+      ]);
 }

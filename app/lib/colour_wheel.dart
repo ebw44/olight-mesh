@@ -20,7 +20,7 @@ class ColourWheel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: LayoutBuilder(builder: (context, box) {
-        final size = math.min(box.maxWidth, 320.0);
+        final size = math.min(box.maxWidth, box.maxHeight.isFinite ? box.maxHeight : 320.0);
         void move(Offset p, void Function(double, double) cb) {
           final (h, s) = _pick(p, size);
           cb(h, s);
@@ -83,23 +83,26 @@ class PresetRow extends StatelessWidget {
   final void Function(double hue, double sat) onPick;
 
   @override
-  Widget build(BuildContext context) => Wrap(spacing: 12, runSpacing: 12, children: [
-        for (final (name, h, s) in presets)
-          Tooltip(
-            message: name,
-            child: InkResponse(
-              onTap: () => onPick(h, s),
-              radius: 28,
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: HSLColor.fromAHSL(1, h, s / 100, 0.5 + (1 - s / 100) * 0.5).toColor(),
-                  border: Border.all(color: Colors.black26, width: 1.5),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          for (final (name, h, s) in presets)
+            Tooltip(
+              message: name,
+              child: InkResponse(
+                onTap: () => onPick(h, s),
+                radius: 22,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: HSLColor.fromAHSL(1, h, s / 100, 0.5 + (1 - s / 100) * 0.5).toColor(),
+                    border: Border.all(color: Colors.black26, width: 1.5),
+                  ),
                 ),
               ),
             ),
-          ),
-      ]);
+        ]),
+      );
 }
