@@ -30,27 +30,36 @@ class Bulb {
   bool get learned => keys.bulbs[device.remoteId.str.toUpperCase()] == null && _learned != null;
   int? _learned;
   Completer<int>? _firstReply;
+  int get dst => unicast ?? dstAllNodes;
 
-  /// Bulb not listed in keys.json: ask all nodes once. The bulb we are connected to is the proxy,
-  /// so its reply arrives first (the others are relayed ~0.5 s later); from then on address only it.
+  /// Bulb not listed in keys.json: ask the proxy node we are connected to who it is. A Proxy Configuration
+  /// message is answered only by that node, and the reply's source is its unicast address.
   Future<void> learnTarget() async {
     if (unicast != null) return;
     final c = _firstReply = Completer<int>();
     try {
-      await send(onoffGet);
-      _learned = await c.future.timeout(const Duration(seconds: 4));
+      await _queueRun(() async {
+        final seq = await _nextSeq();
+        await _in!.write(buildProxyConfigPdu(keys, keys.src, seq, proxySetFilter), withoutResponse: true);
+      });
+      _learned = await c.future.timeout(const Duration(seconds: 5));
       final s = status.value;
       s.sources
         ..clear()
         ..add(_learned!);
       status.value = s.copy();
     } on TimeoutException {
-      // nobody answered: keep addressing all nodes
+      // no Filter Status: keep addressing all nodes
     } finally {
       _firstReply = null;
     }
   }
-  int get dst => unicast ?? dstAllNodes;
+
+  Future<T> _queueRun<T>(Future<T> Function() f) {
+    final r = _queue.then((_) => f());
+    _queue = r.then((_) {}, onError: (_) {});
+    return r;
+  }
 
   Future<void> connect() async {
     for (var i = 0; ; i++) {
@@ -78,13 +87,18 @@ class Bulb {
 
   void _onNotify(List<int> data) {
     final d = Uint8List.fromList(data);
+    if (d.isNotEmpty && d[0] == 2) {
+      // Proxy Configuration: Filter Status (opcode 3) from the node we are connected to
+      final cfg = parseProxyConfigPdu(keys, d);
+      final f = _firstReply;
+      if (cfg != null && cfg.$2.isNotEmpty && cfg.$2[0] == 3 && f != null && !f.isCompleted) f.complete(cfg.$1);
+      return;
+    }
     if (d.length < 2 || d[0] != 0) return; // only complete network PDUs (SAR 0, type 0)
     final net = parseNetworkPdu(keys, Uint8List.fromList(d.sublist(1)));
     if (net == null) return;
     final acc = accessDecrypt(keys, net);
     if (acc == null) return;
-    final f = _firstReply;
-    if (f != null && !f.isCompleted && unicast == null) f.complete(net.src);
     if (unicast != null && net.src != unicast) return; // reply from another bulb of the mesh
     final s = status.value;
     s.sources.add(net.src);

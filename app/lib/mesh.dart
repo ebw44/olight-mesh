@@ -17,8 +17,8 @@ Uint8List aesCmac(Uint8List key, Uint8List msg) {
   return c.process(msg);
 }
 
-Uint8List _ccm(Uint8List key, Uint8List nonce, Uint8List data) {
-  final c = CCMBlockCipher(AESEngine())..init(true, AEADParameters(KeyParameter(key), 32, nonce, Uint8List(0)));
+Uint8List _ccm(Uint8List key, Uint8List nonce, Uint8List data, [int macBits = 32]) {
+  final c = CCMBlockCipher(AESEngine())..init(true, AEADParameters(KeyParameter(key), macBits, nonce, Uint8List(0)));
   return c.process(data); // ciphertext || 4-byte MIC
 }
 
@@ -222,6 +222,44 @@ class BulbStatus {
     updated = DateTime.now();
     return true;
   }
+}
+
+// ---------- proxy configuration (talks to the connected proxy node only) ----------
+
+/// Set Filter Type = blacklist with an empty list (= forward everything to us). Proxy reply: Filter Status.
+Uint8List get proxySetFilter => _b([0x00, 0x01]);
+
+/// Proxy PDU type 2: network PDU with CTL=1, TTL 0, dst 0, 64-bit NetMIC, proxy nonce.
+Uint8List buildProxyConfigPdu(MeshKeys k, int src, int seq, Uint8List transport) {
+  const ctlTtl = 0x80;
+  final nonce = _b([3, 0, ..._be(seq, 3), ..._be(src, 2), 0, 0, ..._be(k.ivIndex, 4)]);
+  final enc = _ccm(k.encKey, nonce, _b([0, 0, ...transport]), 64);
+  final pecb = _aesEcb(k.privKey, _b([0, 0, 0, 0, 0, ..._be(k.ivIndex, 4), ...enc.sublist(0, 7)]));
+  final hdr = [ctlTtl, ..._be(seq, 3), ..._be(src, 2)];
+  return _b([2, ((k.ivIndex & 1) << 7) | k.nid, for (var i = 0; i < 6; i++) hdr[i] ^ pecb[i], ...enc]);
+}
+
+/// Decode a proxy configuration notification (full proxy PDU incl. header byte). Returns (src, transport).
+(int, Uint8List)? parseProxyConfigPdu(MeshKeys k, Uint8List d) {
+  if (d.length < 1 + 1 + 6 + 2 + 8 || d[0] & 0x3F != 2 || d[0] & 0xC0 != 0) return null;
+  final pdu = d.sublist(1);
+  if ((pdu[0] & 0x7F) != k.nid) return null;
+  final enc = Uint8List.fromList(pdu.sublist(7));
+  final pecb = _aesEcb(k.privKey, _b([0, 0, 0, 0, 0, ..._be(k.ivIndex, 4), ...enc.sublist(0, 7)]));
+  final hdr = [for (var i = 0; i < 6; i++) pdu[1 + i] ^ pecb[i]];
+  if (hdr[0] >> 7 != 1) return null;
+  final seq = (hdr[1] << 16) | (hdr[2] << 8) | hdr[3];
+  final src = (hdr[4] << 8) | hdr[5];
+  final nonce = _b([3, 0, ..._be(seq, 3), ..._be(src, 2), 0, 0, ..._be(k.ivIndex, 4)]);
+  final c = CCMBlockCipher(AESEngine())..init(false, AEADParameters(KeyParameter(k.encKey), 64, nonce, Uint8List(0)));
+  Uint8List clear;
+  try {
+    clear = c.process(enc);
+  } catch (_) {
+    return null;
+  }
+  if (clear.length < 3) return null;
+  return (src, Uint8List.fromList(clear.sublist(2)));
 }
 
 String hex(List<int> b) => b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();

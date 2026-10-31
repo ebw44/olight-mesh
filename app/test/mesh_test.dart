@@ -50,4 +50,14 @@ void main() {
     pdu[pdu.length - 1] ^= 1;
     expect(parseNetworkPdu(k, pdu), isNull);
   });
+
+  test('proxy config round trip (Filter Status from the proxy node)', () {
+    final status = buildProxyConfigPdu(k, 0x0042, 0x333, Uint8List.fromList([0x03, 0x01, 0x00, 0x00]));
+    final r = parseProxyConfigPdu(k, status)!;
+    expect(r.$1, 0x42);
+    expect(r.$2, [0x03, 0x01, 0x00, 0x00]);
+    expect(status[0], 2);
+    status[status.length - 1] ^= 1;
+    expect(parseProxyConfigPdu(k, status), isNull);
+  });
 }
