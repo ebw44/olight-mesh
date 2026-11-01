@@ -9,3 +9,6 @@ snapshots.jsonl
 __pycache__/
 *.pyc
 .venv/
+
+# built app lives in GitHub Releases
+dist/
